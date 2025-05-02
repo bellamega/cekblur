@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deteksi Gambar Blur</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        #dropZone {
+            border: 2px dashed #4285F4;
+            padding: 25px;
+            text-align: center;
+            margin: 20px 0;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        canvas { 
+            border: 1px solid #ddd;
+            max-width: 100%;
+            display: block;
+            margin: 10px auto;
+        }
+        button {
+            padding: 10px 15px;
+            background: #4285F4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #result {
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            background: #f0f8ff;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Deteksi Gambar Blur</h1>
+    
+    <div id="dropZone">
+        <p>📁 Tarik gambar ke sini atau klik untuk upload</p>
+        <input type="file" id="fileInput" accept="image/*" class="hidden">
+    </div>
+
+    <canvas id="imageCanvas" class="hidden"></canvas>
+    <button id="analyzeBtn" class="hidden">Analisis Blur</button>
+    <div id="result">Upload gambar untuk memulai</div>
+
+    <script>
+        // Elements
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const imageCanvas = document.getElementById('imageCanvas');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultDiv = document.getElementById('result');
+        
+        let currentImage = null;
+
+        // Event Listeners
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        // Drag and Drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.backgroundColor = '#e6f2ff';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.backgroundColor = '';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.backgroundColor = '';
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect({ target: fileInput });
+            }
+        });
+
+        analyzeBtn.addEventListener('click', analyzeBlur);
+
+        // Handle File Selection
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImage = new Image();
+                currentImage.onload = function() {
+                    displayImage();
+                    analyzeBtn.classList.remove('hidden');
+                    resultDiv.innerHTML = '<p>Gambar siap dianalisis!</p>';
+                };
+                currentImage.onerror = function() {
+                    resultDiv.innerHTML = '<p style="color:red">Error: Format gambar tidak valid</p>';
+                };
+                currentImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Display Image
+        function displayImage() {
+            const ctx = imageCanvas.getContext('2d');
+            imageCanvas.classList.remove('hidden');
+            
+            // Set canvas size to match image (with max 500px width/height)
+            const maxSize = 500;
+            let width = currentImage.width;
+            let height = currentImage.height;
+            
+            if (width > height && width > maxSize) {
+                height = (maxSize / width) * height;
+                width = maxSize;
+            } else if (height > maxSize) {
+                width = (maxSize / height) * width;
+                height = maxSize;
+            }
+            
+            imageCanvas.width = width;
+            imageCanvas.height = height;
+            
+            ctx.drawImage(currentImage, 0, 0, width, height);
+        }
+
+        // Analyze Blur (Fixed)
+        function analyzeBlur() {
+            if (!currentImage) {
+                resultDiv.innerHTML = '<p style="color:red">Error: Tidak ada gambar yang dimuat</p>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<p>Menganalisis...</p>';
+            
+            try {
+                // Get image data with proper error handling
+                const imageData = getImageData();
+                if (!imageData) {
+                    throw new Error("Gagal mendapatkan data gambar");
+                }
+                
+                // Calculate blur score
+                const blurScore = calculateBlurScore(imageData);
+                
+                // Display results
+                showResults(blurScore);
+            } catch (error) {
+                console.error("Error dalam analisis:", error);
+                resultDiv.innerHTML = `<p style="color:red">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Get Image Data (Fixed)
+        function getImageData() {
+            const ctx = imageCanvas.getContext('2d');
+            try {
+                return ctx.getImageData(0, 0, imageCanvas.width, imageCanvas.height);
+            } catch (error) {
+                console.error("Error mendapatkan imageData:", error);
+                return null;
+            }
+        }
+
+        // Calculate Blur Score (Fixed - with boundary checks)
+        function calculateBlurScore(imageData) {
+            const data = imageData.data;
+            const width = imageData.width;
+            const height = imageData.height;
+            
+            let edgeIntensitySum = 0;
+            let edgeCount = 0;
+            
+            // Safe edge detection with boundary checks
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const idx = (y * width + x) * 4;
+                    const rightIdx = (y * width + (x + 1)) * 4;
+                    const bottomIdx = ((y + 1) * width + x) * 4;
+                    
+                    // Boundary check
+                    if (rightIdx >= data.length || bottomIdx >= data.length) continue;
+                    
+                    // Calculate brightness (grayscale)
+                    const brightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                    const rightBrightness = (data[rightIdx] + data[rightIdx+1] + data[rightIdx+2]) / 3;
+                    const bottomBrightness = (data[bottomIdx] + data[bottomIdx+1] + data[bottomIdx+2]) / 3;
+                    
+                    // Edge detection
+                    const horizontalDiff = Math.abs(brightness - rightBrightness);
+                    const verticalDiff = Math.abs(brightness - bottomBrightness);
+                    const edgeStrength = (horizontalDiff + verticalDiff) / 2;
+                    
+                    if (edgeStrength > 30) { // Edge threshold
+                        edgeIntensitySum += edgeStrength;
+                        edgeCount++;
+                    }
+                }
+            }
+            
+            // Normalize score (0 = very blurry, 1 = very sharp)
+            const avgEdgeIntensity = edgeCount > 0 ? edgeIntensitySum / edgeCount : 0;
+            const normalizedScore = Math.min(1, avgEdgeIntensity / 100);
+            
+            // Convert to blur score (0 = sharp, 1 = blurry)
+            return 1 - normalizedScore;
+        }
+
+        // Show Results
+        function showResults(blurScore) {
+            let resultText, color;
+            
+            if (blurScore < 0.3) {
+                resultText = "TAJAM";
+                color = "green";
+            } else if (blurScore < 0.6) {
+                resultText = "SEDIKIT BLUR";
+                color = "orange";
+            } else {
+                resultText = "SANGGAT BLUR";
+                color = "red";
+            }
+            
+            resultDiv.innerHTML = `
+                <h3>HASIL ANALISIS</h3>
+                <p><strong>Skor Blur:</strong> ${blurScore.toFixed(2)}</p>
+                <p><strong>Kualitas:</strong> <span style="color:${color}; font-weight:bold">${resultText}</span></p>
+                <div style="background:#eee; height:20px; border-radius:10px; margin-top:10px;">
+                    <div style="height:100%; width:${blurScore * 100}%; background:${color}; border-radius:10px;"></div>
+                </div>
+                <p style="margin-top:10px; font-size:0.9em;">
+                    <strong>Keterangan:</strong><br>
+                    0 - 0.3 = Tajam<br>
+                    0.3 - 0.6 = Sedikit blur<br>
+                    0.6 - 1 = Sangat blur
+                </p>
+            `;
+        }
+    </script>
+</body>
+</html>
